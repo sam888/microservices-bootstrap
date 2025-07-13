@@ -1,0 +1,27 @@
+spring:
+  application:
+    name: microservices-bootstrap
+  profiles:
+    active: uat
+
+server:
+  port: 9090
+  error:
+    include-stacktrace: never
+
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info
+    enabled-by-default: false
+  endpoint:
+    health:
+      enabled: true
+      show-details: never
+    info:
+      enabled: true
+    metrics:
+      enabled: true
+

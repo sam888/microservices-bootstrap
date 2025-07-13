@@ -1,0 +1,44 @@
+
+# Fake mail setting below. Uncomment and update to use your own to enable JavaMailSender bean for sending email in
+# EmailService.
+#
+#spring:
+#  mail:
+#    host: mail1.demo-demo.com
+#    username: demo
+#    password: demo-demo
+#    port: 587
+#    properties:
+#      mail:
+#        smtp:
+#          auth: true
+#          starttls:
+#            enable: true
+
+# Each URL below represents a different API but implemented within same project for demo purpose.
+# Replace localhost with actual domain/IP for your use case.
+app:
+  auth-url: http://${AUTH_HOST:localhost}:${AUTH_PORT:9090}          # Authentication API
+  member-url: http://${MEMBER_HOST:localhost}:${MEMBER_PORT:9090}    # Member management API
+  transaction-url: http://${TRANS_HOST:localhost}:${TRANS_PORT:9090} # Transaction API
+
+# OK to hardcode JWT Salt in UAT but consider using environment variables like AWS Secrets Manager, HashiCorp Vault, or
+# Kubernetes Secrets to store this securely in Production
+jwt:
+  salt: cvHGUK56XkkPB#$%
+
+email:
+  sendTo: demo-demo@demo.123.com
+  sendCc:
+  sendBcc:
+
+api:
+  environment: UAT
+  url:
+    westpac: https://www.westpac.co.nz/Calculator/7774/calculation
+
+
+scheduler:
+  exchange-rate:
+    initial-delay: 10000 # 10 sec
+    fixed-rate: 10000    # 10 sec
