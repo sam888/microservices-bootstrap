@@ -49,8 +49,7 @@ This project serves as a template to bootstrap a microservices project using Spr
 
   * 3 failed attempts
   * A cooldown of 1h for each third party API defined in enum ErrorNotifierType
-  * 3 failed attempts
-  * A cooldown of 1h for each third party API defined in enum ErrorNotifierType
+  *
 * Uncomment @Scheduled(...) line of DemoExchangeRateProcessor to extract USD exchange rate from public API of Westpac, once every 10 sec. The extracted rate will then be printed to console.
 * Spring Webflux uses multiple threads to serve the same request in an asynchronus, non-blocking way. So how does one track a request in log amid this chaos? The answer is logging with MDC(Mapped Diagnostic Context). This is implemented by using:
 
