@@ -14,6 +14,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.codec.binary.Base64;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
@@ -41,6 +42,9 @@ public class JWTFilter implements WebFilter {
 
     @Value("${jwt.salt}")
     private String jwtSalt;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     private static boolean stringContainsItemFromList(String inputStr) {
         return Arrays.stream( JWTFilter.NO_TOKEN ).parallel().anyMatch( inputStr::startsWith );
@@ -83,15 +87,13 @@ public class JWTFilter implements WebFilter {
     }
 
     private Mono<Void> writeResponse(ServerWebExchange exchange, BaseResponseVO body, HttpStatus status){
-        Mono<DataBuffer> db = Mono.just(body).map(resp -> {
-
-            ObjectMapper objectMapper = new ObjectMapper();
+        Mono<DataBuffer> db = Mono.just(body).map( baseResponseVO -> {
             try {
-                return objectMapper.writeValueAsBytes(resp);
+                return objectMapper.writeValueAsBytes( baseResponseVO );
             } catch (JsonProcessingException e) {
                 return e.getMessage().getBytes();
             }
-        }).map(s -> exchange.getResponse().bufferFactory().wrap(s));
+        }).map( byateArray -> exchange.getResponse().bufferFactory().wrap( byateArray ));
 
         exchange.getResponse().getHeaders().add("Content-Type", "application/json");
         exchange.getResponse().setStatusCode(status);
