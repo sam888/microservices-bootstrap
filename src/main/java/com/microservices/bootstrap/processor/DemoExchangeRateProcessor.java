@@ -23,7 +23,7 @@ public class DemoExchangeRateProcessor {
     *
     * @return
     */
-   // @Scheduled(initialDelayString = "${scheduler.exchange-rate.initial-delay}", fixedRateString = "${scheduler.exchange-rate.fixed-rate}")
+   @Scheduled(initialDelayString = "${scheduler.exchange-rate.initial-delay}", fixedRateString = "${scheduler.exchange-rate.fixed-rate}")
    public void updateDemoExchangeRate() {
       exchangeRateService.getAllUsdRates()
         .doOnNext(data -> {

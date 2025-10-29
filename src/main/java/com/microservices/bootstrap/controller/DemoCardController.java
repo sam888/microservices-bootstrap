@@ -5,11 +5,11 @@ import com.microservices.bootstrap.service.DemoCardService;
 import com.microservices.bootstrap.vo.ApiResponseVO;
 import com.microservices.bootstrap.vo.CardDetailsResponseVO;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Mono;
 
@@ -30,10 +30,10 @@ public class DemoCardController {
    }
 
    @GetMapping("/{cardNumber}")
-   public ResponseEntity<Mono<ApiResponseVO<CardDetailsResponseVO>>> getCardDetails(
+   @ResponseStatus( HttpStatus.OK )
+   public Mono<ApiResponseVO<CardDetailsResponseVO>> getCardDetails(
            @RequestHeader("moduleCode") String moduleCode,
            @PathVariable String cardNumber) throws InternalException {
-      Mono<ApiResponseVO<CardDetailsResponseVO>> response = demoCardService.getCardDetails(moduleCode, cardNumber);
-      return new ResponseEntity<>(response, HttpStatus.OK);
+      return demoCardService.getCardDetails(moduleCode, cardNumber);
    }
 }

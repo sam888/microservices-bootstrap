@@ -35,7 +35,7 @@ email:
 api:
   environment: UAT
   url:
-    westpac: https://www.westpac.co.nz/Calculator/7774/calculation
+    westpac: https://www.westpac.co.nz/Calculator/7774/calculation/
 
 
 scheduler:
