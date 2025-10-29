@@ -16,7 +16,7 @@ import reactor.core.publisher.Mono;
 
 /**
  * @author samuel.huang
- * @Date 07/07/2025
+ * Created: 07-July-2025
  */
 @RestController
 @RequestMapping("/auth")

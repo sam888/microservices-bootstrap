@@ -1,6 +1,5 @@
 package com.microservices.bootstrap.controller;
 
-import com.microservices.bootstrap.exception.InternalException;
 import com.microservices.bootstrap.service.DemoCardService;
 import com.microservices.bootstrap.vo.ApiResponseVO;
 import com.microservices.bootstrap.vo.CardDetailsResponseVO;
@@ -33,7 +32,7 @@ public class DemoCardController {
    @ResponseStatus( HttpStatus.OK )
    public Mono<ApiResponseVO<CardDetailsResponseVO>> getCardDetails(
            @RequestHeader("moduleCode") String moduleCode,
-           @PathVariable String cardNumber) throws InternalException {
+           @PathVariable String cardNumber) {
       return demoCardService.getCardDetails(moduleCode, cardNumber);
    }
 }

@@ -21,16 +21,13 @@ public class DemoExchangeRateProcessor {
    /**
     * Simulate updating an external demo app's exchange rate after extracting the best USD rate from ASB & Westpac
     *
-    * @return
     */
    @Scheduled(initialDelayString = "${scheduler.exchange-rate.initial-delay}", fixedRateString = "${scheduler.exchange-rate.fixed-rate}")
    public void updateDemoExchangeRate() {
       exchangeRateService.getAllUsdRates()
         .doOnNext(data -> {
            List<RateResponseDTO> rateResponseDTOList = data.getData();
-           rateResponseDTOList.forEach(rateResponseDTO -> {
-              log.info("Extracted exchange rate: " + rateResponseDTO);
-           });
+           rateResponseDTOList.forEach(rateResponseDTO -> log.info("Extracted exchange rate: " + rateResponseDTO));
         })
         .doOnError(e -> log.error("Error retrieving exchange rates", e))
         .subscribe();
