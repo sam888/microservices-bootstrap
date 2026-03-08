@@ -1,8 +1,5 @@
 package com.microservices.bootstrap.client;
 
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.microservices.bootstrap.enums.Constants;
 import com.microservices.bootstrap.exception.InternalException;
 import com.microservices.bootstrap.vo.auth.BaseResponseVO;
@@ -10,18 +7,16 @@ import io.netty.channel.ChannelOption;
 import lombok.extern.slf4j.Slf4j;
 
 import org.slf4j.MDC;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatusCode;
-import org.springframework.http.MediaType;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
-import org.springframework.http.codec.json.Jackson2JsonDecoder;
-import org.springframework.http.codec.json.Jackson2JsonEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.ExchangeFilterFunction;
 import org.springframework.web.reactive.function.client.ExchangeStrategies;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 import reactor.netty.http.client.HttpClient;
+import reactor.netty.resources.ConnectionProvider;
 
 import java.time.Duration;
 
@@ -29,18 +24,49 @@ import java.time.Duration;
 @Slf4j
 @Service
 public class BaseClient {
-
-    @Value("${app.member-url}")
-    private String memberUrl;
     
     public static final String MDC_KEY = Constants.MDC_KEY.value();
     public static final String X_REQUEST_ID = Constants.X_REQUEST_ID.value();
+
+   // ── Pool configuration constants ─────────────────────────────────────────
+   private static final int    MAX_CONNECTIONS           = 100;  // per backend host
+   private static final int    PENDING_ACQUIRE_MAX_COUNT = 50;   // queue before immediate rejection
+   private static final int    PENDING_ACQUIRE_TIMEOUT_S = 5;    // sec before queued request fails
+   private static final int    MAX_IDLE_TIME_S           = 30;   // sec before idle connection released
+   private static final int    MAX_LIFE_TIME_M           = 5;    // min before connection recycled
+   private static final int    EVICT_INTERVAL_S          = 30;   // sec between background eviction runs
+   private static final int    CONNECT_TIMEOUT_MS        = 3_000; // ms to establish TCP connection
+   private static final int    RESPONSE_TIMEOUT_S        = 15;   // sec for backend to start responding
+
+   @Autowired
+   private ExchangeStrategies exchangeStrategies;
 
     protected WebClient getWebClient(String url) {
         return getWebClient( url, false);
     }
 
     protected WebClient getWebClient(String url, boolean useCustomErrorFilter) {
+
+       ConnectionProvider provider = ConnectionProvider.builder( url )
+               .maxConnections( MAX_CONNECTIONS )
+               .pendingAcquireMaxCount( PENDING_ACQUIRE_MAX_COUNT )
+               .pendingAcquireTimeout( Duration.ofSeconds( PENDING_ACQUIRE_TIMEOUT_S ) )
+               .maxIdleTime( Duration.ofSeconds( MAX_IDLE_TIME_S ) )
+               .maxLifeTime( Duration.ofMinutes( MAX_LIFE_TIME_M ) )
+               .evictInBackground( Duration.ofSeconds( EVICT_INTERVAL_S ))
+               .metrics( true )    // exposes pool metrics to Micrometer / JvmDiagnosticsLogger
+               .build();
+
+       // HttpClient created per provider — lightweight wrapper, safe to create per WebClient.
+       // The expensive resource (TCP connection pool) lives in the provider above, not here.
+       HttpClient httpClient = HttpClient.create(provider)
+               .compress(true)
+               .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, CONNECT_TIMEOUT_MS)
+               .responseTimeout(Duration.ofSeconds( RESPONSE_TIMEOUT_S ));
+       // Note: ReadTimeoutHandler / WriteTimeoutHandler not needed here.
+       // responseTimeout covers the full request/response cycle for small JSON payloads.
+       // ReadTimeoutHandler only adds value for large streamed responses (e.g. file downloads).
+
         WebClient.Builder builder = WebClient.builder()
                 .filter( logRequest() );     // Log request
 
@@ -49,16 +75,10 @@ public class BaseClient {
             builder = builder.filter( errorHandlingFilter() );  // Apply default error handler
         }
 
-        return builder.defaultHeader( X_REQUEST_ID, MDC.get( MDC_KEY ))
-            .exchangeStrategies( getExchangeStrategies() )
-            .clientConnector(
-                new ReactorClientHttpConnector(
-                    HttpClient.create() // DO not use HttpClient.newConnection() as we want to re-use TCP connection from pool
-                        .compress( true )
-                        .option( ChannelOption.CONNECT_TIMEOUT_MILLIS, 10_000 )   // 10 sec connection timeout
-                        .responseTimeout( Duration.ofSeconds( 15 ) )              // 15 sec response timeout
-                )
-            )
+       return builder
+            .defaultHeader( X_REQUEST_ID, MDC.get(  MDC_KEY ) )
+            .exchangeStrategies( exchangeStrategies )
+            .clientConnector( new ReactorClientHttpConnector( httpClient ) )
             .baseUrl( url )
             .build();
     }
@@ -73,19 +93,6 @@ public class BaseClient {
         });
     }
 
-    protected ExchangeStrategies getExchangeStrategies(){
-        ObjectMapper objectMapper = new ObjectMapper();
-        objectMapper.registerModule(new JavaTimeModule());
-        objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-
-        return ExchangeStrategies
-                .builder()
-                .codecs(clientDefaultCodecsConfigurer -> {
-                    clientDefaultCodecsConfigurer.defaultCodecs().jackson2JsonEncoder(new Jackson2JsonEncoder(objectMapper, MediaType.APPLICATION_JSON));
-                    clientDefaultCodecsConfigurer.defaultCodecs().jackson2JsonDecoder(new Jackson2JsonDecoder(objectMapper, MediaType.APPLICATION_JSON));
-                }).build();
-    }
-
     protected static ExchangeFilterFunction errorHandlingFilter() {
         return ExchangeFilterFunction.ofResponseProcessor(clientResponse -> {
             HttpStatusCode httpStatusCode = clientResponse.statusCode();
@@ -97,6 +104,5 @@ public class BaseClient {
             }
         });
     }
-
     
 }

@@ -28,7 +28,7 @@ public class WestpacClient extends BaseClient {
    public Mono<WestpacRateResponseDTO> getUsdRateByWestpac(){
       WestpacRateRequestDTO westpacRateRequestDTO = getWestpacRateRequestDTO( "USD" );
       log.info("westpacRateRequestDTO: " + westpacRateRequestDTO);
-      return getWebClient( westpacUrl )
+      return getWestpacWebClient()
               .post()
               .accept( MediaType.APPLICATION_JSON )
               .body( Mono.just( westpacRateRequestDTO ), WestpacRateRequestDTO.class )
