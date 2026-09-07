@@ -42,3 +42,9 @@ scheduler:
   exchange-rate:
     initial-delay: 10000 # 10 sec
     fixed-rate: 10000    # 10 sec
+
+
+cache:
+  members:
+    get-details:
+      ttl-seconds: 3600   # 1 hr

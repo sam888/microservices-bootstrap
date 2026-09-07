@@ -3,6 +3,28 @@ spring:
     name: microservices-bootstrap
   profiles:
     active: uat
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      connect-timeout: 1000ms   # Fail fast timeout of initial network handshake (TCP connection) between Spring Boot and the Redis server
+      lettuce:
+        shutdown-timeout: 2000ms # Graceful 2s waiting before closing connection with Redis by shutting down Lettuce client during deployment
+        pool: # max-active, max-idle and min-idle represent Netty TCP connections, not real threads
+          max-active: 64         # Handles concurrent bursts of traffic without blocking
+          max-idle: 16           # Caps the upper limit of warm idle connections
+          min-idle: 8            # Keeps connections warm so users don't feel connection lag
+          max-wait: 1000ms       # Max time a thread will wait to grab a connection from the pool
+    cache:
+      type: redis
+      redis:
+        time-to-live: 180000      # 3 min default TTL (ms)
+        cache-null-values: false
+
+app:
+  cache:
+    key-prefix: "MS_BOOTSTRAP:"
 
 server:
   port: 9090
@@ -29,10 +51,56 @@ management:
     health:
       enabled: true    # enables /actuator/health
       show-details: never
+      group:
+        redis:
+          include: redis           # only the "redis" health indicator has full details visible for this group specifically.
+          show-details: always     # Note /actuator/health/redis will be restricted to internal/admin access.
       probes:
         enabled: true  # enables both /actuator/health/liveness and /actuator/health/readiness
     info:
       enabled: true
     metrics:
       enabled: true
+
+# How the two components share the same "redis" circuit breaker:
+#   - RedisCacheErrorHandler → records @Cacheable Redis errors via circuitBreaker.onError()
+#
+# State transitions:
+#   CLOSED    → normal operation; @Cacheable attempts Redis on every request
+#   OPEN      → getIdentsFallback() called directly; zero Redis I/O
+#   HALF_OPEN → after waitDurationInOpenState, probe calls allowed through;
+#               success → CLOSED, failure → OPEN (recovery clock resets)
+#
+# Actuator endpoints (no extra code needed):
+#   /actuator/health  → circuitBreakers.redis state (requires show-details: always)
+#   /actuator/metrics → resilience4j.circuitbreaker.* (Prometheus-ready)
+
+resilience4j:
+  circuitbreaker:
+    circuit-breaker-aspect-order: -100   # very low value = very high precedence = wraps outermost
+    instances:
+      redis:
+        # Trip OPEN when >= 50% of the last 10 Redis calls fail.
+        sliding-window-type: COUNT_BASED   # Resilience4j counts how many of the last N calls failed
+        sliding-window-size: 10
+        failure-rate-threshold: 50
+
+        # Don't calculate failure rate until at least 5 calls have been made.
+        # Prevents the breaker tripping on the very first error at startup.
+        minimum-number-of-calls: 5
+
+        # Stay OPEN for 30s, then transition to HALF_OPEN to allow probe calls.
+        wait-duration-in-open-state: 30s
+
+        # Allow 3 probe calls in HALF_OPEN to determine if Redis has recovered.
+        # All 3 probes must succeed to trip back to closed circuit.
+        #   OPEN
+        #      → 30s elapses
+        #      → automatic-transition-from-open-to-half-open-enabled: true fires the transition to HALF_OPEN
+        #      → circuit now WAITS for actual client requests to act as probes
+        #      → if no client ever calls getIdents() again, it stays HALF_OPEN forever
+        permitted-number-of-calls-in-half-open-state: 3
+
+        # Transition to HALF_OPEN automatically after the 30s wait duration automatically
+        automatic-transition-from-open-to-half-open-enabled: true
 
