@@ -47,10 +47,14 @@ public class RedisHealthProbe {
          if (!"ok".equals(result)) {
             throw new IllegalStateException("Redis health probe round-trip returned unexpected value: " + result);
          }
+
+         long elapsedNanos = System.nanoTime() - start;
          circuitBreaker.onSuccess(System.nanoTime() - start, TimeUnit.NANOSECONDS);
+         log.debug("Redis health probe OK — round-trip took {}ms", elapsedNanos / 1_000_000.0);
       } catch (Exception e) {
+         long elapsedNanos = System.nanoTime() - start;
          circuitBreaker.onError(System.nanoTime() - start, TimeUnit.NANOSECONDS, e);
-         log.warn("Redis health probe failed!");
+         log.warn("Redis health probe failed after {}ms — {}", elapsedNanos / 1_000_000.0, e.toString());
       }
    }
 }

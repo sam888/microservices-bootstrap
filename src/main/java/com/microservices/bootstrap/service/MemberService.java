@@ -11,8 +11,7 @@ import reactor.core.publisher.Mono;
 
 import java.time.Duration;
 
-import io.github.resilience4j.circuitbreaker.CircuitBreaker;
-import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 
 
 /**
@@ -27,11 +26,6 @@ public class MemberService {
 
    public static final String CIRCUIT_BREAKER_NAME = "redis";
 
-   private final CircuitBreaker circuitBreaker;
-
-   public MemberService(CircuitBreakerRegistry circuitBreakerRegistry) {
-      this.circuitBreaker = circuitBreakerRegistry.circuitBreaker(CIRCUIT_BREAKER_NAME);
-   }
 
    /**
     * Returns Member Details for a given traderId, with Redis caching and circuit breaker protection.
@@ -44,12 +38,24 @@ public class MemberService {
     *   After waitDurationInOpenState (default is 60s for Resilience4j), the breaker transitions to HALF_OPEN and allows probe
     *   calls through. A successful probe closes the circuit and normal caching resumes.
     */
-   @Cacheable(
-           value = CacheNames.GET_MEMBER_DETAILS,
-           key = "'moduleCode:' + #moduleCode + ':traderId:' + #traderId",
-           condition = "@memberService.isRedisCircuitClosed()"
-   )
+   @CircuitBreaker(name = CIRCUIT_BREAKER_NAME, fallbackMethod = "getMemberDetailsFall")
+   @Cacheable( value = CacheNames.GET_MEMBER_DETAILS, key = "'moduleCode:' + #moduleCode + ':traderId:' + #traderId")
    public Mono<ApiResponseVO<MemberDetailsResponseVO>> getMemberDetails(String moduleCode, Long traderId) {
+      return getMemberDetailsByDatabase(moduleCode, traderId);
+   }
+
+   /**
+    * @CircuitBreaker fallback. Resilience4j's fallback resolution (this version,
+    * resilience4j-spring6) specifically requires the original method's parameters
+    * plus a trailing Throwable — it does not fall back to matching the plain 2-arg
+    * signature. Delegates to the shared core logic (i.e. getMemberDetailsByDatabase(..))
+    * after logging why the fallback fired (circuit OPEN, or an error — e.g. a Redis
+    * connectivity failure — that leaked past @Cacheable while the circuit was still CLOSED).
+    */
+   public Mono<ApiResponseVO<MemberDetailsResponseVO>> getMemberDetailsFall(
+           String moduleCode, Long traderId, Throwable throwable) {
+      log.warn("Circuit breaker fallback triggered for moduleCode={} traderId={} — {}",
+              moduleCode, traderId, throwable.toString());
       return getMemberDetailsByDatabase(moduleCode, traderId);
    }
 
@@ -81,10 +87,6 @@ public class MemberService {
       return Mono.just( new ApiResponseVO<>(responseVO) )
               .delayElement(Duration.ofMillis(500));
 
-   }
-
-   public boolean isRedisCircuitClosed() {
-      return circuitBreaker.getState() != CircuitBreaker.State.OPEN;
    }
 
 }
