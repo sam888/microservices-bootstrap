@@ -68,6 +68,7 @@ dependencies {
     implementation 'org.springframework:spring-context'
     implementation 'org.springframework.boot:spring-boot-starter-validation'
     implementation 'org.springframework.boot:spring-boot-starter-freemarker'
+    implementation 'org.springframework.boot:spring-boot-starter-aop'
 
     // https://docs.spring.io/spring-boot/docs/current/reference/html/configuration-metadata.html
     // Only required when using @ConfigurationProperties
