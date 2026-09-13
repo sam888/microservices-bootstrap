@@ -1,12 +1,15 @@
 package com.microservices.bootstrap.filter;
 
 import com.microservices.bootstrap.enums.Constants;
+import static com.microservices.bootstrap.filter.RequestResponseLoggingFilter.getDataByDataBuffer;
+
 import lombok.extern.slf4j.Slf4j;
 import org.reactivestreams.Publisher;
 import org.slf4j.MDC;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
 import org.springframework.core.io.buffer.DataBuffer;
+import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.http.server.reactive.ServerHttpRequestDecorator;
 import org.springframework.http.server.reactive.ServerHttpResponse;
@@ -31,6 +34,7 @@ import java.util.UUID;
 public class RequestResponseLoggingFilter implements WebFilter {
 
     private static final String API_PREFIX = "demo";
+    private static final int MAX_LOG_CHARS = 512;
     private static final String[] NO_LOGGING_URI = new String[] {"/favicon.ico", "/actuator"};
 
     @Override
@@ -65,7 +69,12 @@ public class RequestResponseLoggingFilter implements WebFilter {
                     // Log performance of each request
                     Instant endInstant = Instant.now();
                     Duration duration = Duration.between( startInstant , endInstant );
-                    log.info( "Running time {}:{}:{} (M:SS:sss)", duration.toMinutes(), duration.toSeconds(), duration.toMillisPart() );
+                    if ( duration.toMillis() < 5_000 ) {
+                        log.info( "HTTP {} {} returned in {} ms", request.getMethod(), request.getURI(), duration.toMillis() );
+                    } else {
+                        log.warn("Warning: More than 5 sec. HTTP {} {} returned in {} ms", request.getMethod(),
+                                request.getURI(), duration.toMillis());
+                    }
                     MDC.clear();
                 })
                 .contextWrite( Context.of(Constants.MDC_KEY.value(), requestId) );
@@ -74,13 +83,16 @@ public class RequestResponseLoggingFilter implements WebFilter {
     public static String getDataByDataBuffer(DataBuffer dataBuffer)  {
         StringBuilder stringBuilder = new StringBuilder();
 
-        // DataBuffer.readableByteBuffers() will allow reading of byte data from request/response multiple times
-        dataBuffer.readableByteBuffers().forEachRemaining( byteBuffer -> {
-            byte[] bytes = new byte[ byteBuffer.remaining() ];
-            byteBuffer.get( bytes );
-            stringBuilder.append( new String(bytes, StandardCharsets.UTF_8) );
-        });
-        return stringBuilder.toString();
+        try (DataBuffer.ByteBufferIterator it = dataBuffer.readableByteBuffers()) {
+            while ( it.hasNext() ) {
+                stringBuilder.append( StandardCharsets.UTF_8.decode( it.next() ) );
+                if (stringBuilder.length() >= MAX_LOG_CHARS) break;
+            }
+        }
+
+        return stringBuilder.length() > MAX_LOG_CHARS
+                ? stringBuilder.substring(0, MAX_LOG_CHARS) + "... [truncated]"
+                : stringBuilder.toString();
     }
 
     private String getRequestId() {
@@ -102,7 +114,7 @@ class RequestLoggingDecorator extends ServerHttpRequestDecorator {
     @Override
     public Flux<DataBuffer> getBody() {
         return super.getBody().doOnNext(dataBuffer -> {
-            String body = RequestResponseLoggingFilter.getDataByDataBuffer( dataBuffer );
+            String body = getDataByDataBuffer( dataBuffer );
             log.info("Request payload of {}: {}", getDelegate().getPath(), body);
         });
     }
@@ -120,11 +132,8 @@ class ResponseLoggingDecorator extends ServerHttpResponseDecorator {
 
     @Override
     public Mono<Void> writeWith(Publisher<? extends DataBuffer> body) {
-        Mono<DataBuffer> buffer = Mono.from(body);
-
-        return super.writeWith( buffer.doOnNext( dataBuffer -> {
-            String response = RequestResponseLoggingFilter.getDataByDataBuffer( dataBuffer );
-            log.info("Response payload of {}: {}", requestPath, response);
-        }));
+        return DataBufferUtils.join(body)
+                .doOnNext(buf -> log.info("Response payload of {}: {}", requestPath, getDataByDataBuffer( buf ) ) )
+                .flatMap( buf -> super.writeWith( Mono.just( buf ) ) );
     }
 }
