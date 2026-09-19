@@ -41,7 +41,7 @@ api:
 scheduler:
   exchange-rate:
     initial-delay: 10000 # 10 sec
-    fixed-rate: 10000    # 10 sec
+    fixed-rate: 60000    # 60 sec
 
 
 cache:

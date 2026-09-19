@@ -1,10 +1,13 @@
 plugins {
     id 'java'
     id 'org.springframework.boot' version '3.5.14'
-    id 'io.spring.dependency-management' version '1.1.3'
+    id 'io.spring.dependency-management' version '1.1.7'
 
     // uncomment this when using git
-    // id "com.gorylenko.gradle-git-properties" version "2.4.1"  // Generate git Info at /actuator/info
+    id "com.gorylenko.gradle-git-properties" version "2.5.2"  // Generate git Info at /actuator/info
+
+    id "com.google.osdetector" version "1.7.3" // Detect OS
+    id 'org.graalvm.buildtools.native' version '0.10.6'  // ✅ add this
 }
 
 // Uncomment this and 'com.fasterxml.jackson.dataformat:jackson-dataformat-xml' below for parsing xml
@@ -17,7 +20,7 @@ plugins {
 
 
 group = 'com.microservices.bootstrap'
-version = '0.0.1'
+version = '0.0.2'
 
 // https://spring.io/blog/2023/09/09/all-together-now-spring-boot-3-2-graalvm-native-images-java-21-and-virtual
 /*
@@ -39,10 +42,54 @@ repositories {
 
 
 jar {
-    archiveFileName = 'microservices-bootstrap.jar'
+    archiveFileName = 'microservices-bootstrap.jar' // https://docs.gradle.org/current/dsl/org.gradle.api.tasks.bundling.Jar.html
     // https://docs.gradle.org/current/dsl/org.gradle.api.tasks.bundling.Jar.html
     manifest {
         attributes 'Main-Class': 'com.microservices.bootstrap.MainApplication'
+    }
+}
+
+graalvmNative {
+    toolchainDetection = false  // ✅ add this - use JAVA_HOME instead of auto-detect
+    binaries {
+        main {
+            imageName = 'microservices-bootstrap'         // output binary name
+            mainClass = 'com.microservices.bootstrap.MainApplication'
+            buildArgs.add('--no-fallback')  // fail if native not possible
+
+            // Fix build error like:
+            //   Error: Classes that should be initialized at run time got initialized during image building:
+            //   org.apache.commons.logging.LogFactory was unintentionally initialized at build time
+            buildArgs.add('--initialize-at-build-time=org.apache.commons.logging.LogFactory')
+
+            buildArgs.add('--initialize-at-run-time=ch.qos.logback,org.apache.logging.log4j,org.slf4j,org.apache.commons.logging.impl.Jdk14Logger')
+            buildArgs.add('--initialize-at-run-time=org.springframework.data.repository.util.QueryExecutionConverters,org.springframework.data.util.CustomCollections')
+
+            // Uncomment to trace what triggers ch.qos.logback.classic.Logger's static init during nativeCompile — useful when
+            // the build fails with "Classes that should be initialized at run time got initialized during image building".
+            // In this project it traced back to Spring Data's QueryExecutionConverters, fixed via:
+            //      buildArgs.add('--initialize-at-run-time=org.springframework.data.repository.util.QueryExecutionConverters,org.springframework.data.util.CustomCollections')
+            // (Note: other classes can trigger the same conflict via different paths — repeat with a different class name
+            // from the error message if this doesn't fully resolve it.)
+            //
+            // buildArgs.add('--trace-class-initialization=ch.qos.logback.classic.Logger')   // ← temporary, remove after diagnosing
+
+            buildArgs.add('-H:+ReportExceptionStackTraces')
+            buildArgs.add('-H:+ReportUnsupportedElementsAtRuntime')
+
+            // Explicitly forces GraalVM to include the missing AOT classes folder.
+            classpath(sourceSets.aot.output.classesDirs)
+
+            // Always use fast build locally. The valid optimize options for GraalVM 17 are:
+            // Flag    Meaning
+            // -O0No   optimizations (fastest build, good for dev)
+            // -O1     Basic optimizations
+            // -O2     Default -> the default when no flag is specified, exactly what's used for production
+            // -Ob     Optimize for fastest build time. ~43% build speedup according to Oracle benchmark
+            if (project.hasProperty('localDev')) {
+                buildArgs.add('-Ob')  // Usage: ./gradlew nativeCompile -PlocalDev
+            }
+        }
     }
 }
 
@@ -50,6 +97,10 @@ configurations {
     compileOnly {
         extendsFrom annotationProcessor
     }
+    all {
+        exclude group: 'commons-logging', module: 'commons-logging'
+    }
+
 }
 
 springBoot {
@@ -60,6 +111,15 @@ springBoot {
 tasks.named('bootJar') {
     launchScript()
 }
+
+tasks.withType(JavaCompile) {
+    options.compilerArgs << "-Xlint:unchecked" << "-Xlint:deprecation"
+}
+
+tasks.register('runNative', Exec) {
+    commandLine "./build/native/nativeCompile/microservices-bootstrap"
+}
+
 
 dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
@@ -92,13 +152,13 @@ dependencies {
     // implementation 'org.apache.commons:commons-text:1.10.0'
     // implementation 'com.fasterxml.jackson.dataformat:jackson-dataformat-xml'   // Parsing XML
 
-    implementation 'io.micrometer:micrometer-registry-prometheus'
-
     implementation 'org.springframework.boot:spring-boot-starter-cache'  // Cache abstraction (@Cacheable / @CacheEvict)
     implementation 'org.springframework.boot:spring-boot-starter-data-redis' // Redis
 
     // resilience4j Circuit Breaker
-    implementation 'io.github.resilience4j:resilience4j-spring-boot3:2.4.0'
+    implementation('io.github.resilience4j:resilience4j-spring-boot3:2.4.0') {
+        exclude group: 'org.apache.logging.log4j'
+    }
     implementation 'io.github.resilience4j:resilience4j-reactor:2.4.0'
 
     compileOnly 'org.projectlombok:lombok'
@@ -121,6 +181,13 @@ dependencies {
     // JUnit 5, update to latest as required
     testImplementation 'org.junit.jupiter:junit-jupiter-api:5.10.0'
     testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.10.0'
+}
+
+// https://docs.gradle.org/current/userguide/java_testing.html
+
+// Disables the test task every time a build is run
+tasks.named('test') {
+    enabled = false
 }
 
 /*

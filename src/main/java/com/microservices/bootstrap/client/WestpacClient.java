@@ -2,9 +2,8 @@ package com.microservices.bootstrap.client;
 
 import com.microservices.bootstrap.dto.WestpacRateRequestDTO;
 import com.microservices.bootstrap.dto.WestpacRateResponseDTO;
-import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.aot.hint.annotation.RegisterReflectionForBinding;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
@@ -13,22 +12,19 @@ import reactor.core.publisher.Mono;
 
 @Slf4j
 @Service
-public class WestpacClient extends BaseClient {
+@RegisterReflectionForBinding({ WestpacRateRequestDTO.class, WestpacRateResponseDTO.class })
+public class WestpacClient {
 
-   private String westpacUrl;
+   private final WebClient westpacWebClient;
 
-   @Getter
-   private WebClient westpacWebClient;
-
-   public WestpacClient(@Value("${api.url.westpac}") String westpacUrl) {
-      this.westpacUrl = westpacUrl;
-      this.westpacWebClient = getWebClient( westpacUrl );
+   public WestpacClient(WebClient westpacWebClient) {
+      this.westpacWebClient = westpacWebClient;
    }
 
    public Mono<WestpacRateResponseDTO> getUsdRateByWestpac(){
       WestpacRateRequestDTO westpacRateRequestDTO = getWestpacRateRequestDTO( "USD" );
       log.info("westpacRateRequestDTO: " + westpacRateRequestDTO);
-      return getWestpacWebClient()
+      return westpacWebClient
               .post()
               .accept( MediaType.APPLICATION_JSON )
               .body( Mono.just( westpacRateRequestDTO ), WestpacRateRequestDTO.class )

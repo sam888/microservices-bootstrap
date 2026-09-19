@@ -49,6 +49,7 @@ public class ExchangeRateService {
       // Uncomment .doOnError(...) to send error notification email after 3 failed attempts to access Westpac API
       Mono<RateResponseDTO> westpacRateMono = getUsdRateByWestpac().timeout( timeoutDuration )
               .retry( 2 ) // A total of 3 attempts will be made before sending error notification email below
+              .doOnError( e -> log.error( "Westpac call failed", e ) )
               // .doOnError(throwable -> sendErrorNotificationEmail( "Westpac", "USD", ErrorNotifierType.WESTPAC, throwable ))
               .onErrorResume( e -> Mono.just( getErrorRateResponse( "Westpac", "USD") ) );
 

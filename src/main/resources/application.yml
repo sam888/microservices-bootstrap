@@ -42,13 +42,10 @@ management:
   metrics:
     enable:
       reactor.netty: true   # Enable Reactor Netty metrics
-    export:
-      prometheus:
-        enabled: true
   endpoints:
     web:
       exposure:
-        include: health, info, prometheus
+        include: health, info
     enabled-by-default: false
   endpoint:
     health:
