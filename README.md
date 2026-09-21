@@ -56,8 +56,16 @@ This project serves as a template to bootstrap a microservices project using Spr
   * MdcContextLifter and MdcContextLifterConfiguration
   * MDC[%X{MDC_KEY}] in logback.xml
   * Use of org.slf4j.MDC.MDC.put(..) in RequestResponseLoggingFilter and BaseClient
-*
+  
+  
+* See [Redis Integration with Circuit Breaker](https://github.com/sam888/redis-circuit-breaker) for how Redis is used to implement circuit breaker in this project.  
 
-Created: 14-July-2025
+
+* See [spring-boot-native-image-graalvm-guide](https://github.com/sam888/spring-boot-native-image-graalvm-guide) for how GraalVM is used to build native image in this project.
+
+
+Created: 14-July-2025 \
+Last modified: 21-Sep-2026
+---
 
 Samuel Huang
