@@ -66,6 +66,7 @@ This project serves as a template to bootstrap a microservices project using Spr
 
 Created: 14-July-2025 \
 Last modified: 21-Sep-2026
+
 ---
 
 Samuel Huang
