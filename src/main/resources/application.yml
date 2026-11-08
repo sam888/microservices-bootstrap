@@ -3,6 +3,26 @@ spring:
     name: microservices-bootstrap
   profiles:
     active: uat
+  # --- Bank CDC demo: Postgres via R2DBC (non-blocking) and Kafka. Start both with cdc-platform/docker-compose.yml ---
+  r2dbc:
+    url: r2dbc:postgresql://${BANK_DB_HOST:localhost}:${BANK_DB_PORT:5432}/${BANK_DB_NAME:bankdb}
+    username: ${BANK_DB_USER:postgres}
+    password: ${BANK_DB_PASSWORD:postgres}
+    pool:
+      initial-size: 2
+      max-size: 10
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:29092}  # host listener of cdc-platform/docker-compose.yml
+    consumer:
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    producer:                      # only used to publish failed records to <topic>.DLT
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+    listener:
+      ack-mode: record
   data:
     redis:
       host: ${REDIS_HOST:localhost}
@@ -25,6 +45,11 @@ spring:
 app:
   cache:
     key-prefix: "MS_BOOTSTRAP:"
+  bank-cdc:
+    topics:
+      member: bank.public.member               # raw row changes (member-connector)
+      outbox-member: outbox.event.member       # business events routed from the outbox table (outbox-connector)
+      outbox-account: outbox.event.account
 
 server:
   port: 9090
@@ -103,4 +128,9 @@ resilience4j:
 
         # Transition to HALF_OPEN automatically after the 30s wait duration automatically
         automatic-transition-from-open-to-half-open-enabled: true
+
+        # A business answer is not a Redis failure: "member not found" (HTTP 404) must not count towards tripping
+        # the breaker. Without this, ten lookups of unknown ids in a row would open the circuit while Redis is fine.
+        ignore-exceptions:
+          - com.microservices.bootstrap.bank.producer.BankExceptions$NotFoundException
 

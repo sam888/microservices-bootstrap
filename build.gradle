@@ -23,17 +23,9 @@ group = 'com.microservices.bootstrap'
 version = '0.0.2'
 
 // https://spring.io/blog/2023/09/09/all-together-now-spring-boot-3-2-graalvm-native-images-java-21-and-virtual
-/*
 java {
     sourceCompatibility = '21'
     toolchain {languageVersion = JavaLanguageVersion.of( 21 ) }
-}
-*/
-
-compileJava {
-    options.encoding = 'UTF-8'
-    options.deprecation = true  // Show deprecated details
-    options.release = 17
 }
 
 repositories {
@@ -155,6 +147,11 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-cache'  // Cache abstraction (@Cacheable / @CacheEvict)
     implementation 'org.springframework.boot:spring-boot-starter-data-redis' // Redis
 
+    // Bank CDC demo (transactional outbox + Debezium). See README section "Event-driven integration".
+    implementation 'org.springframework.boot:spring-boot-starter-data-r2dbc'  // DatabaseClient, reactive @Transactional
+    runtimeOnly 'org.postgresql:r2dbc-postgresql'                             // non-blocking Postgres driver (NOT a JDBC driver)
+    implementation 'org.springframework.kafka:spring-kafka'                   // consumer + dead-letter publishing
+
     // resilience4j Circuit Breaker
     implementation('io.github.resilience4j:resilience4j-spring-boot3:2.4.0') {
         exclude group: 'org.apache.logging.log4j'
@@ -176,7 +173,11 @@ dependencies {
         exclude group: 'org.junit.vintage', module: 'junit-vintage-engine'
     }
     // testImplementation 'org.springframework.security:spring-security-test'
-    // testImplementation 'io.projectreactor:reactor-test'
+    testImplementation 'io.projectreactor:reactor-test'   // StepVerifier
+    testImplementation 'org.springframework.boot:spring-boot-testcontainers'
+    testImplementation 'org.testcontainers:junit-jupiter'
+    testImplementation 'org.testcontainers:postgresql'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 
     // JUnit 5, update to latest as required
     testImplementation 'org.junit.jupiter:junit-jupiter-api:5.10.0'
@@ -185,13 +186,30 @@ dependencies {
 
 // https://docs.gradle.org/current/userguide/java_testing.html
 
-// Disables the test task every time a build is run
+// `./gradlew test`            = fast unit tests, no Docker needed.
+// `./gradlew integrationTest` = Testcontainers tests (real Postgres), needs Docker.
+// (The test task used to be disabled because the project had no tests; it is enabled now.)
 tasks.named('test') {
-    enabled = false
+    useJUnitPlatform {
+        excludeTags 'integration'
+    }
 }
 
-/*
-test {
-    useJUnitPlatform()
+tasks.register('integrationTest', Test) {
+    description = 'Runs Testcontainers-based integration tests'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform {
+        includeTags 'integration'
+    }
 }
- */
+
+// Integration tests reuse the real SQL scripts that Postgres runs in cdc-platform/
+sourceSets {
+    test {
+        resources {
+            srcDir 'cdc-platform/db'
+        }
+    }
+}

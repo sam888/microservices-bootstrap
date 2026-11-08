@@ -17,4 +17,8 @@ public class CacheNames {
 
    // Caches MemberService.getMemberDetails(..)
    public static final String GET_MEMBER_DETAILS = "members:get-details";
+
+   // Caches MemberProfileService.getProfile(..) (bank CDC demo). Evicted by MemberCacheInvalidator when Debezium
+   // reports a change to the member table.
+   public static final String GET_BANK_MEMBER_PROFILE = "bank-members:get-profile";
 }

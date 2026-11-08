@@ -1,0 +1,153 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: bank-postgres
+    command: ["postgres", "-c", "wal_level=logical", "-c", "max_wal_senders=10", "-c", "max_replication_slots=10"]
+    environment:
+      POSTGRES_DB: bankdb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"   # host port; override with POSTGRES_PORT=5433 if 5432 is taken
+    volumes:
+      - ./db:/docker-entrypoint-initdb.d:ro   # runs db/*.sql in order, ONLY on first start (empty volume); see scripts/apply-db.sh
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d bankdb"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  kafka:
+    image: apache/kafka:3.8.0               # KRaft mode, no ZooKeeper
+    container_name: bank-kafka
+    ports:
+      - "29092:29092"                       # host access (Spring Boot on your laptop)
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: INTERNAL://:9092,EXTERNAL://:29092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,EXTERNAL://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+
+  connect:
+    image: quay.io/debezium/connect:2.7     # Kafka Connect + Debezium connectors
+    container_name: bank-connect
+    depends_on:
+      postgres: { condition: service_healthy }
+      kafka:    { condition: service_healthy }
+    ports:
+      - "8083:8083"                         # Kafka Connect REST API
+    environment:
+      BOOTSTRAP_SERVERS: kafka:9092
+      GROUP_ID: bank-connect-cluster
+      CONFIG_STORAGE_TOPIC: connect_configs
+      OFFSET_STORAGE_TOPIC: connect_offsets
+      STATUS_STORAGE_TOPIC: connect_statuses
+      CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      STATUS_STORAGE_REPLICATION_FACTOR: 1
+
+  # ---- Postgres admin GUI (pgAdmin 4): run the README's SQL here instead of `docker exec ... psql`. ----
+  # Open http://localhost:5050 (no login: desktop mode). The server "bankdb (Docker)" is pre-registered by
+  # pgadmin/servers.json; when asked for its password, enter: postgres
+  pgadmin:
+    image: dpage/pgadmin4:8.12
+    container_name: bank-pgadmin
+    depends_on:
+      postgres: { condition: service_healthy }
+    ports:
+      - "${PGADMIN_PORT:-5050}:80"           # host port; override with PGADMIN_PORT=5051 if 5050 is taken
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@demo.dev   # required by the image even though login is disabled below
+      PGADMIN_DEFAULT_PASSWORD: Admin123!
+      PGADMIN_CONFIG_SERVER_MODE: "False"                  # desktop mode: no login screen (local demo only)
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
+    volumes:
+      - ./pgadmin/servers.json:/pgadmin4/servers.json:ro   # pre-registers the demo database
+      - pgadmin_data:/var/lib/pgadmin
+
+  # ---- Redis cache (read cache for the member profile; evicted by the CDC consumer) ----
+  # The Spring Boot app on your laptop reaches it at localhost:6379 (application.yml: REDIS_HOST / REDIS_PORT).
+  redis:
+    image: redis:7-alpine
+    container_name: bank-redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"          # host port; override with REDIS_PORT=6380 (and give the app the same REDIS_PORT)
+    volumes:
+      - redis-data:/data
+    command: redis-server --save 60 1       # persist to disk every 60s if at least 1 key changed
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ---- Redis browser UI: http://localhost:8081 (look for keys like MS_BOOTSTRAP:bank-members:get-profile::member:1) ----
+  redis-commander:
+    image: rediscommander/redis-commander:latest   # pin a specific version for reproducibility
+    container_name: bank-redis-commander
+    environment:
+      - REDIS_HOSTS=local:redis:6379        # name:host:port, reached over the Docker network (service name "redis")
+    ports:
+      - "${REDIS_COMMANDER_PORT:-8081}:8081"  # browser UI only; unrelated to your API (which runs on 9090)
+    depends_on:
+      redis: { condition: service_healthy }
+
+  # ---- Optional UI. NOT started by a plain `docker compose up -d`: you must pass `--profile ui`. ----
+  conduktor-postgres:
+    profiles: ["ui"]
+    image: postgres:16
+    container_name: conduktor-postgres
+    environment:
+      POSTGRES_DB: conduktor
+      POSTGRES_USER: conduktor
+      POSTGRES_PASSWORD: change_me
+    volumes:
+      - conduktor_pgdata:/var/lib/postgresql/data
+    healthcheck:                            # Console fails on first boot if its DB isn't accepting connections yet
+      test: ["CMD-SHELL", "pg_isready -U conduktor -d conduktor"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  conduktor-console:
+    profiles: ["ui"]
+    image: conduktor/conduktor-console:latest   # pin a specific version for reproducibility
+    container_name: conduktor-console
+    restart: on-failure
+    depends_on:
+      conduktor-postgres: { condition: service_healthy }
+      kafka:              { condition: service_healthy }
+      connect:            { condition: service_started }
+    ports:
+      - "8080:8080"
+    environment:
+      CDK_DATABASE_URL: postgresql://conduktor:change_me@conduktor-postgres:5432/conduktor
+      CDK_ORGANIZATION_NAME: demo
+      CDK_ADMIN_EMAIL: admin@demo.dev
+      CDK_ADMIN_PASSWORD: Admin123!
+      CDK_CLUSTERS_0_ID: local
+      CDK_CLUSTERS_0_NAME: local
+      CDK_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      CDK_CLUSTERS_0_KAFKACONNECTS_0_ID: debezium
+      CDK_CLUSTERS_0_KAFKACONNECTS_0_NAME: debezium-connect
+      CDK_CLUSTERS_0_KAFKACONNECTS_0_URL: http://connect:8083
+
+volumes:
+  pgdata:
+  pgadmin_data:
+  redis-data:
+  conduktor_pgdata:

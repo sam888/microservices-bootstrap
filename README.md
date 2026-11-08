@@ -1,71 +1,54 @@
-### Microservices Bootstrap project
+# Change Data Capture (CDC) & Transactional Outbox with Debezium
 
-This project serves as a template to bootstrap a microservices project using Spring Boot Webflux. Hopefully this will save someone the trouble of reinventing the wheel for trying to do many similar things in this project.
+This branch contains the proof-of-concept implementation behind the tutorial
+**[CDC & Transactional Outbox with Debezium](https://github.com/sam888/cdc-transactional-outbox-debezium-kafka)**:
+a Spring Boot (WebFlux, R2DBC) service that publishes business events reliably through a transactional outbox,
+with Postgres, Debezium on Kafka Connect, Kafka and Redis.
 
-**Features**...
+## What's in this branch
 
-* JWTFilter and DemoAuthController show the use of JWT token for authentication. All API requires a valid JWT token in HTTP Authorization header as authentication except for /auth/token and any URI starting with /demo.
-  JWT token can be retrieved by making HTTP Post request to /auth/token with request data
+- `src/main/java/.../bank/producer`: REST API. Each operation is one Postgres function that writes the business rows
+  **and** the outbox row in one transaction.
+- `src/main/java/.../bank/consumer`: Three Kafka consumers, one consumer group per side effect. Each consumer de-duplicates through an inbox table:
+  * Redis cache eviction (raw CDC) consumer
+  * An audit-trail event log consumer
+  * A ledger consumer
+- `cdc-platform/`: Docker Compose platform (Postgres, Kafka, Kafka Connect + Debezium, Redis), SQL scripts and connector definitions.
 
-  * ```
-    {
-         "username": "autumnWind",
-         "password": "HaGqklkGHL4567"
-    }
-    ```
+## Run it
 
-    and HTTP header moduleCode=DEMO
-  * Sample successful response
+Run each step from the repository root, and check its result before moving on.
 
-    * ```
-      {
-          "outcomeCode": "0",
-          "outcomeMessage": "Success",
-          "outcomeUserMessage": null,
-             "data": {
-               "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJEZW1vIEx0ZCIsImp0aSI6ImQ3NDM2NzRhLTVlY2UtNDE2OS1hZDc3LWRhMTY2M2I2OTMzOCIsImlhdCI6MTc1MjM3Mzk2OSwiZXhwIjoxNzUyMzc3NTY5LCJtb2R1bGVDb2RlIjoiREVNTyIsInVzZXJJZCI6Ijc1Njc4MTE3IiwidXNlck5hbWUiOiJhdXR1bW5XaW5kIiwidXNlclR5cGUiOiIzIn0.NjUDlANLo70XaZNhYkP9aS5RPsQSaOjmmUl12ajouWs",
-               "userId": null,
-               "expiration": "2025-07-13 15:32:49"
-             }
-         }
-      ```
-* JWT token obtained above can then be used to access Get Card Details API at HTTP Get /cards/60800838383 where card number is 60800838383. Note this token expires after one hour.
+**1. Start the platform** (Postgres, pgAdmin, Kafka, Kafka Connect with Debezium, Conduktor Console, Conduktor Postgress, Redis and  Redis Commander):
 
-  * Successful response of Get Card Details API
-    * ```
-        {
-           "outcomeCode": "0",
-           "outcomeMessage": "Success",
-           "outcomeUserMessage": null,
-           "data": {
-              "cardNumber": "60800838383",
-              "expiryDate": "2027-07-13",
-              "traderId": 45678,
-              "balance": 0
-           }
-        }
-      ```
-* Uncomment and configure spring.mail.* in application-uat.yml to send email using EmailService when a third party API fails to respond under conditions
+```bash
+cd cdc-platform
+docker compose --profile ui up -d
+```
 
-  * 3 failed attempts
-  * A cooldown of 1h for each third party API defined in enum ErrorNotifierType
-  *
-* Uncomment @Scheduled(...) line of DemoExchangeRateProcessor to extract USD exchange rate from public API of Westpac, once every 10 sec. The extracted rate will then be printed to console.
-* Spring Webflux uses multiple threads to serve the same request in an asynchronus, non-blocking way. So how does one track a request in log amid this chaos? The answer is logging with MDC(Mapped Diagnostic Context). This is implemented by using:
+Wait until `docker compose ps` shows `postgres`, `kafka` and `redis` as **healthy** and `connect` as **running**.
+Kafka Connect needs another 20 to 60 seconds after that before it answers.
 
-  * MdcContextLifter and MdcContextLifterConfiguration
-  * MDC[%X{MDC_KEY}] in logback.xml
-  * Use of org.slf4j.MDC.MDC.put(..) in RequestResponseLoggingFilter and BaseClient
-  
-  
-* See [Redis Integration with Circuit Breaker](https://github.com/sam888/redis-circuit-breaker) for how Redis is used to implement circuit breaker in this project.  
+**2. Register the Debezium connectors** (still in `cdc-platform/`):
 
+```bash
+./scripts/register-connector.sh
+```
 
-* See [spring-boot-native-image-graalvm-guide](https://github.com/sam888/spring-boot-native-image-graalvm-guide) for how GraalVM is used to build native image in this project.
+Expected: `created: member-connector`, `created: outbox-connector`, and `"state":"RUNNING"` for each.
+A `Connection refused` means Kafka Connect isn't ready yet: wait a little and run it again.
 
+**3. Start the Spring Boot app** (back in the repository root):
 
-Created: 14-July-2025 \
-Last modified: 21-Sep-2026
+```bash
+cd ..
+./gradlew bootRun
+```
+
+The app listens on <http://localhost:9090>.
+
+See the **[tutorial](https://github.com/sam888/cdc-transactional-outbox-debezium-kafka)** for the full walkthrough:
+architecture, Postman calls, Conduktor, replay, and the design behind every piece.
 
 ---
 

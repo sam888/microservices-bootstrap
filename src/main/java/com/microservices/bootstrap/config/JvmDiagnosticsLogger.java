@@ -83,7 +83,7 @@ public class JvmDiagnosticsLogger {
    // =========================================================
    // MAIN TICK — every 3 minutes unless there is any warning. Modify as required.
    // =========================================================
-   @Scheduled(fixedRate = 60_000)
+   //@Scheduled(fixedRate = 60_000)
    public void logDiagnostics() {
       boolean anyWarning = isDirectMemoryHigh()
               || isHeapHigh()

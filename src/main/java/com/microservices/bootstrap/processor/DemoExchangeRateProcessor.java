@@ -22,7 +22,7 @@ public class DemoExchangeRateProcessor {
     * Simulate updating an external demo app's exchange rate after extracting the best USD rate from ASB & Westpac
     *
     */
-   @Scheduled(initialDelayString = "${scheduler.exchange-rate.initial-delay}", fixedRateString = "${scheduler.exchange-rate.fixed-rate}")
+   // @Scheduled(initialDelayString = "${scheduler.exchange-rate.initial-delay}", fixedRateString = "${scheduler.exchange-rate.fixed-rate}")
    public void updateDemoExchangeRate() {
       exchangeRateService.getAllUsdRates()
         .doOnNext(data -> {
